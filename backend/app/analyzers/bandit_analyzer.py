@@ -12,23 +12,56 @@ from app.analyzers.normalizer import normalize_bandit_finding
 
 logger = logging.getLogger(__name__)
 
+def resolve_executable(tool_name: str) -> str:
+    """
+    Cross-platform executable path resolver for static analysis tools.
+
+    Priority:
+    1. PATH lookup using shutil.which()
+    2. Active Python environment executable directory:
+       - Linux/macOS: <python-dir>/bin/<tool>
+       - Windows: <python-dir>/Scripts/<tool>.exe, .cmd, .bat, or <tool>
+       - Python installation directory directly: <python-dir>/<tool>
+    """
+    # 1. PATH lookup
+    found = shutil.which(tool_name)
+    if found:
+        return found
+
+    # 2. Check active Python environment executable directory
+    python_dir = os.path.dirname(sys.executable)
+    search_dirs = [
+        os.path.join(python_dir, "bin"),      # Linux / macOS virtualenv standard
+        os.path.join(python_dir, "Scripts"),  # Windows virtualenv standard
+        python_dir,                           # Direct Python installation root
+    ]
+    extensions = [".exe", ".cmd", ".bat", ""] if sys.platform == "win32" else ["", ".exe", ".cmd", ".bat"]
+
+    for s_dir in search_dirs:
+        if not os.path.exists(s_dir):
+            continue
+        for ext in extensions:
+            candidate = os.path.join(s_dir, f"{tool_name}{ext}")
+            if os.path.isfile(candidate):
+                if hasattr(os, "X_OK") and sys.platform != "win32":
+                    if os.access(candidate, os.X_OK):
+                        return candidate
+                else:
+                    return candidate
+
+    return None
+
 def build_bandit_cmd(temp_file_path: str) -> List[str]:
     """
     Safely construct command argument array for Bandit execution (shell=False).
-    Checks PATH, Python Scripts directory, and python -m fallback.
+    Resolves executable cross-platform across Windows, Linux, and macOS.
     """
     args = ["-f", "json", "-r", temp_file_path]
-    found = shutil.which("bandit")
-    if found:
-        return [found] + args
+    exe = resolve_executable("bandit")
+    if exe:
+        return [exe] + args
 
-    scripts_dir = os.path.join(os.path.dirname(sys.executable), "Scripts")
-    for ext in [".exe", ".cmd", ".bat", ""]:
-        candidate = os.path.join(scripts_dir, f"bandit{ext}")
-        if os.path.exists(candidate):
-            return [candidate] + args
-
-    # Fallback to module invocation via active python interpreter
+    # Fallback to module invocation via active python interpreter if bandit module is installed
     return [sys.executable, "-m", "bandit"] + args
 
 def run_bandit_analysis(code: str, filename: str = "input.py") -> List[Finding]:
@@ -59,9 +92,15 @@ def run_bandit_analysis(code: str, filename: str = "input.py") -> List[Finding]:
         cmd = build_bandit_cmd(temp_file_path)
 
         env = os.environ.copy()
-        scripts_dir = os.path.join(os.path.dirname(sys.executable), "Scripts")
-        if os.path.exists(scripts_dir):
-            env["PATH"] = scripts_dir + os.pathsep + env.get("PATH", "")
+        python_dir = os.path.dirname(sys.executable)
+        extra_paths = [
+            os.path.join(python_dir, "bin"),
+            os.path.join(python_dir, "Scripts"),
+            python_dir,
+        ]
+        valid_paths = [p for p in extra_paths if os.path.exists(p)]
+        if valid_paths:
+            env["PATH"] = os.pathsep.join(valid_paths) + os.pathsep + env.get("PATH", "")
 
         result = subprocess.run(
             cmd,
@@ -83,6 +122,9 @@ def run_bandit_analysis(code: str, filename: str = "input.py") -> List[Finding]:
             except json.JSONDecodeError as err:
                 logger.warning(f"Failed to parse Bandit JSON output: {err}")
 
+    except FileNotFoundError as fnf_err:
+        logger.warning(f"Bandit executable not found in PATH or Python environment: {fnf_err}")
+        return findings
     except subprocess.TimeoutExpired:
         logger.error(f"Bandit static analysis timed out after {ANALYZER_TIMEOUT_SECONDS} seconds.")
         raise RuntimeError(f"Bandit static analysis execution timed out after {ANALYZER_TIMEOUT_SECONDS}s.")

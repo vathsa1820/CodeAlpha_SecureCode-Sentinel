@@ -21,10 +21,49 @@ def get_semgrep_rules_path() -> str:
     rules_path = os.path.join(project_root, "rules", "semgrep", "python-security.yml")
     return rules_path
 
+def resolve_executable(tool_name: str) -> str:
+    """
+    Cross-platform executable path resolver for static analysis tools.
+
+    Priority:
+    1. PATH lookup using shutil.which()
+    2. Active Python environment executable directory:
+       - Linux/macOS: <python-dir>/bin/<tool>
+       - Windows: <python-dir>/Scripts/<tool>.exe, .cmd, .bat, or <tool>
+       - Python installation directory directly: <python-dir>/<tool>
+    """
+    # 1. PATH lookup
+    found = shutil.which(tool_name)
+    if found:
+        return found
+
+    # 2. Check active Python environment executable directory
+    python_dir = os.path.dirname(sys.executable)
+    search_dirs = [
+        os.path.join(python_dir, "bin"),      # Linux / macOS virtualenv standard
+        os.path.join(python_dir, "Scripts"),  # Windows virtualenv standard
+        python_dir,                           # Direct Python installation root
+    ]
+    extensions = [".exe", ".cmd", ".bat", ""] if sys.platform == "win32" else ["", ".exe", ".cmd", ".bat"]
+
+    for s_dir in search_dirs:
+        if not os.path.exists(s_dir):
+            continue
+        for ext in extensions:
+            candidate = os.path.join(s_dir, f"{tool_name}{ext}")
+            if os.path.isfile(candidate):
+                if hasattr(os, "X_OK") and sys.platform != "win32":
+                    if os.access(candidate, os.X_OK):
+                        return candidate
+                else:
+                    return candidate
+
+    return None
+
 def build_semgrep_cmd(rules_path: str, temp_file_path: str) -> List[str]:
     """
     Safely construct command argument array for Semgrep execution (shell=False).
-    Checks PATH, Python Scripts directory, and python -m fallback.
+    Resolves executable cross-platform across Windows, Linux, and macOS.
     """
     args = [
         "scan",
@@ -35,17 +74,12 @@ def build_semgrep_cmd(rules_path: str, temp_file_path: str) -> List[str]:
         "--quiet",
         "--no-git-ignore",
     ]
-    found = shutil.which("semgrep")
-    if found:
-        return [found] + args
+    exe = resolve_executable("semgrep")
+    if exe:
+        return [exe] + args
 
-    scripts_dir = os.path.join(os.path.dirname(sys.executable), "Scripts")
-    for ext in [".exe", ".cmd", ".bat", ""]:
-        candidate = os.path.join(scripts_dir, f"semgrep{ext}")
-        if os.path.exists(candidate):
-            return [candidate] + args
-
-    return [sys.executable, "-m", "semgrep"] + args
+    # Fallback to binary name; subprocess handles PATH lookup or raises FileNotFoundError cleanly
+    return ["semgrep"] + args
 
 def run_semgrep_analysis(code: str, filename: str = "input.py") -> List[Finding]:
     """
@@ -80,9 +114,15 @@ def run_semgrep_analysis(code: str, filename: str = "input.py") -> List[Finding]
         cmd = build_semgrep_cmd(rules_path, temp_file_path)
 
         env = os.environ.copy()
-        scripts_dir = os.path.join(os.path.dirname(sys.executable), "Scripts")
-        if os.path.exists(scripts_dir):
-            env["PATH"] = scripts_dir + os.pathsep + env.get("PATH", "")
+        python_dir = os.path.dirname(sys.executable)
+        extra_paths = [
+            os.path.join(python_dir, "bin"),
+            os.path.join(python_dir, "Scripts"),
+            python_dir,
+        ]
+        valid_paths = [p for p in extra_paths if os.path.exists(p)]
+        if valid_paths:
+            env["PATH"] = os.pathsep.join(valid_paths) + os.pathsep + env.get("PATH", "")
 
         result = subprocess.run(
             cmd,
@@ -104,6 +144,9 @@ def run_semgrep_analysis(code: str, filename: str = "input.py") -> List[Finding]
             except json.JSONDecodeError as err:
                 logger.warning(f"Failed to parse Semgrep JSON output: {err}")
 
+    except FileNotFoundError as fnf_err:
+        logger.warning(f"Semgrep executable not found in PATH or Python environment: {fnf_err}")
+        return findings
     except subprocess.TimeoutExpired:
         logger.error(f"Semgrep static analysis timed out after {ANALYZER_TIMEOUT_SECONDS} seconds.")
         raise RuntimeError(f"Semgrep static analysis execution timed out after {ANALYZER_TIMEOUT_SECONDS}s.")
