@@ -55,7 +55,7 @@ def resolve_executable(tool_name: str) -> str:
             candidate = os.path.join(s_dir, f"{tool_name}{ext}")
             if os.path.isfile(candidate):
                 if hasattr(os, "X_OK") and sys.platform != "win32":
-                    if os.access(candidate, os.X_OK):
+                    if candidate.endswith((".exe", ".cmd", ".bat")) or os.access(candidate, os.X_OK):
                         return candidate
                 else:
                     return candidate

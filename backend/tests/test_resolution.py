@@ -35,6 +35,7 @@ def test_executable_resolution_windows_scripts_path(tmp_path):
     fake_exe = os.path.join(scripts_dir, "bandit.exe")
     with open(fake_exe, "w") as f:
         f.write("binary")
+    os.chmod(fake_exe, 0o755)
 
     with patch("shutil.which", return_value=None):
         with patch.object(sys, "executable", os.path.join(python_dir, "python.exe")):
