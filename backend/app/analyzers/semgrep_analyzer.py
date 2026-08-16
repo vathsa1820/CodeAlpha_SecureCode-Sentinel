@@ -22,15 +22,16 @@ def get_semgrep_rules_path() -> str:
     return rules_path
 
 def resolve_executable(tool_name: str) -> str:
-    """
+    r"""
     Cross-platform executable path resolver for static analysis tools.
 
     Priority:
     1. PATH lookup using shutil.which()
     2. Active Python environment executable directory:
-       - Linux/macOS: <python-dir>/bin/<tool>
-       - Windows: <python-dir>/Scripts/<tool>.exe, .cmd, .bat, or <tool>
-       - Python installation directory directly: <python-dir>/<tool>
+       - <python-dir> directly (which is /venv/bin on Linux/macOS or \venv\Scripts on Windows)
+       - <python-dir>/bin
+       - <python-dir>/Scripts
+       - <python-dir>/../bin
     """
     # 1. PATH lookup
     found = shutil.which(tool_name)
@@ -40,9 +41,10 @@ def resolve_executable(tool_name: str) -> str:
     # 2. Check active Python environment executable directory
     python_dir = os.path.dirname(sys.executable)
     search_dirs = [
-        os.path.join(python_dir, "bin"),      # Linux / macOS virtualenv standard
-        os.path.join(python_dir, "Scripts"),  # Windows virtualenv standard
-        python_dir,                           # Direct Python installation root
+        python_dir,                                         # Direct bin/Scripts directory of Python interpreter
+        os.path.join(python_dir, "bin"),                   # Subfolder bin
+        os.path.join(python_dir, "Scripts"),               # Subfolder Scripts (Windows)
+        os.path.join(os.path.dirname(python_dir), "bin"),   # Parent bin
     ]
     extensions = [".exe", ".cmd", ".bat", ""] if sys.platform == "win32" else ["", ".exe", ".cmd", ".bat"]
 
@@ -73,6 +75,7 @@ def build_semgrep_cmd(rules_path: str, temp_file_path: str) -> List[str]:
         "--json",
         "--quiet",
         "--no-git-ignore",
+        "--metrics=off",
     ]
     exe = resolve_executable("semgrep")
     if exe:
@@ -114,11 +117,12 @@ def run_semgrep_analysis(code: str, filename: str = "input.py") -> List[Finding]
         cmd = build_semgrep_cmd(rules_path, temp_file_path)
 
         env = os.environ.copy()
+        env["SEMGREP_SEND_METRICS"] = "off"
         python_dir = os.path.dirname(sys.executable)
         extra_paths = [
+            python_dir,
             os.path.join(python_dir, "bin"),
             os.path.join(python_dir, "Scripts"),
-            python_dir,
         ]
         valid_paths = [p for p in extra_paths if os.path.exists(p)]
         if valid_paths:
