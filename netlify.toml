@@ -1,0 +1,11 @@
+# Netlify Deployment Configuration for SecureCode Sentinel Frontend
+
+[build]
+  command = "cd frontend && npm ci && npm run build"
+  publish = "frontend/dist"
+
+# Single Page Application (SPA) Client-Side Route Fallback
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
