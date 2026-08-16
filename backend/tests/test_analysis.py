@@ -119,9 +119,10 @@ def test_non_execution_guarantee():
         os.remove(canary_file)
 
     # Malicious payload that would create a canary file if executed or imported
+    canary_path_str = canary_file.replace('\\', '/')
     malicious_code = f"""
 import os
-os.system("echo EXECUTED > {canary_file.replace('\\', '/')}")
+os.system("echo EXECUTED > {canary_path_str}")
 eval("os.system('echo EXECUTED')")
 """
 
