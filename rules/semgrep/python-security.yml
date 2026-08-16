@@ -1,0 +1,71 @@
+rules:
+  - id: unsafe-eval-exec
+    pattern-either:
+      - pattern: eval(...)
+      - pattern: exec(...)
+    message: "Use of eval() or exec() detected. This can lead to arbitrary code execution if passed untrusted input."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe:
+        - "CWE-95: Improper Neutralization of Directives in Dynamically Evaluated Code ('Eval Injection')"
+      category: security
+      confidence: HIGH
+
+  - id: dangerous-subprocess-shell
+    pattern-either:
+      - pattern: subprocess.Popen(..., shell=True, ...)
+      - pattern: subprocess.run(..., shell=True, ...)
+      - pattern: subprocess.call(..., shell=True, ...)
+      - pattern: subprocess.check_output(..., shell=True, ...)
+    message: "Subprocess call with shell=True identified. This can lead to command injection if unescaped user input is passed."
+    languages: [python]
+    severity: ERROR
+    metadata:
+      cwe:
+        - "CWE-78: Improper Neutralization of Special Elements used in an OS Command ('OS Command Injection')"
+      category: security
+      confidence: HIGH
+
+  - id: hardcoded-password-secret
+    patterns:
+      - pattern: $VAR = "$SECRET"
+      - metavariable-regex:
+          metavariable: $VAR
+          regex: "(?i).*(password|passwd|secret|api_key|apikey|access_token|private_key).*"
+    message: "Possible hardcoded credential or secret stored in variable '$VAR'."
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe:
+        - "CWE-798: Use of Hard-coded Credentials"
+      category: security
+      confidence: MEDIUM
+
+  - id: insecure-randomness
+    pattern-either:
+      - pattern: random.randint(...)
+      - pattern: random.random(...)
+      - pattern: random.choice(...)
+      - pattern: random.randrange(...)
+    message: "Standard pseudo-random number generator 'random' is not cryptographically secure. Use 'secrets' module for security-sensitive operations."
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe:
+        - "CWE-330: Use of Insufficiently Random Values"
+      category: security
+      confidence: MEDIUM
+
+  - id: insecure-hash-algorithm
+    pattern-either:
+      - pattern: hashlib.md5(...)
+      - pattern: hashlib.sha1(...)
+    message: "Use of weak cryptographic hash function (MD5 or SHA1). Consider upgrading to SHA-256 or SHA-512."
+    languages: [python]
+    severity: WARNING
+    metadata:
+      cwe:
+        - "CWE-327: Use of a Broken or Risky Cryptographic Algorithm"
+      category: security
+      confidence: HIGH

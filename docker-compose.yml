@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  # Static Analyzer Container Image Builder
+  analyzer:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: securecode-sentinel-analyzer:latest
+    container_name: sentinel-analyzer-build
+    profiles: ["tools"]
